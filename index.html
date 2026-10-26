@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClinicAssist – AI front-desk assistant (demo)</title>
+<style>
+:root{--bg:#eef3f6;--card:#fff;--ink:#14213d;--mut:#5a6b7d;--pri:#0a7c86;--pri2:#075e66;--line:#cfdbe3;--red:#b42318;--amb:#a15c07;--grn:#17692f}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:22px 24px;background:var(--ink);color:#fff;border-bottom:4px solid var(--pri)}
+h1,h2{font-family:Georgia,"Times New Roman",serif;font-weight:700}
+h1{margin:0;font-size:1.5rem}header p{margin:4px 0 0;color:#b9c8d6;font-size:.92rem;max-width:62ch}
+main{max-width:1020px;margin:20px auto;padding:0 16px;display:grid;gap:16px;grid-template-columns:1.1fr .9fr}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+section{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px}
+h2{margin:0 0 10px;font-size:1.1rem}
+#log{height:310px;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:2px}
+.m{max-width:86%;padding:8px 12px;border-radius:14px 14px 14px 3px;white-space:pre-wrap}
+.bot{background:#e3f0f2;align-self:flex-start}
+.me{background:var(--pri);color:#fff;align-self:flex-end;border-radius:14px 14px 3px 14px}
+.alert{background:#fde8e6;color:#7a1710;border:2px solid var(--red);align-self:stretch;max-width:100%;border-radius:6px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.chip{font:inherit;font-size:.85rem;cursor:pointer;border:1px solid var(--pri);background:#fff;border-radius:4px;padding:3px 10px;color:var(--pri2)}
+.row{display:flex;gap:8px}
+input,textarea,select{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:#fff;color:var(--ink)}
+label{display:block;font-size:.88rem;color:var(--mut);margin:10px 0 3px}
+.btn{font:inherit;cursor:pointer;background:var(--pri);color:#fff;border:0;border-radius:4px;padding:8px 16px;white-space:nowrap}
+.btn:hover{background:var(--pri2)}.btn.ghost{background:#fff;color:var(--pri2);border:1px solid var(--pri)}
+:focus-visible{outline:3px solid #f2a900;outline-offset:2px}
+#res{margin-top:12px;padding:10px 12px;border-left:5px solid var(--pri);background:#f2f8f9;display:none}
+#queue{grid-column:1/-1;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.92rem;min-width:620px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600}
+.tag{padding:2px 9px;border-radius:4px;font-size:.82rem;font-weight:700}
+.Urgent{background:#fde8e6;color:var(--red)}.Routine{background:#e1f4e6;color:var(--grn)}.Admin{background:#fdf0d5;color:var(--amb)}
+.note{color:var(--mut);font-size:.85rem;margin:8px 0 0}
+</style></head>
+<body>
+<header><h1>ClinicAssist</h1>
+<p>An AI-built front-desk assistant for Sunrise Family Clinic (fictional demo). It answers common questions, flags emergencies and sorts appointment requests by urgency.</p></header>
+<main>
+<section aria-labelledby="h-chat"><h2 id="h-chat">Ask the clinic</h2>
+<div id="log" aria-live="polite"></div>
+<div class="chips" id="chips"></div>
+<div class="row"><input id="msg" placeholder="Type a question, for example: what are your opening hours?" aria-label="Your question"><button class="btn" id="send">Send</button></div>
+</section>
+<section aria-labelledby="h-form"><h2 id="h-form">Request an appointment</h2>
+<label for="nm">Your name</label><input id="nm" autocomplete="off">
+<label for="rs">What is the visit about?</label><textarea id="rs" rows="3"></textarea>
+<label for="pf">Preferred time</label>
+<select id="pf"><option>Morning</option><option>Afternoon</option><option>Telehealth call</option></select>
+<p><button class="btn" id="go">Send request</button></p>
+<div id="res" role="status"></div>
+</section>
+<section id="queue" aria-labelledby="h-q"><div class="row" style="justify-content:space-between;align-items:center">
+<h2 id="h-q">Staff queue (sorted by urgency)</h2><button class="btn ghost" id="clr">Clear queue</button></div>
+<table id="q"><thead><tr><th>Received</th><th>Patient</th><th>Reason</th><th>Priority</th><th>Suggested next step</th></tr></thead><tbody></tbody></table>
+<p class="note">Demo only: sample clinic details, no real patient data, not medical advice. The matching here is rule-based. In a production version the same prompts and JSON output would come from an LLM such as Claude on Amazon Bedrock, grounded in the clinic's own documents (RAG).</p>
+</section>
+</main>
+<script>
+const FAQ=[
+{k:["hour","open","close","time"],a:"We are open Monday to Friday 8am to 6pm and Saturday 9am to 1pm. We are closed on Sundays and public holidays."},
+{k:["fee","cost","price","bulk","bill","medicare","pay"],a:"A standard consult is $80 (sample figure). We bulk bill children under 16 and concession card holders, and Medicare rebates apply."},
+{k:["book","appointment","see a doctor"],a:"Use the 'Request an appointment' form and our team will confirm by phone or SMS."},
+{k:["telehealth","video","online","phone consult"],a:"Telehealth by phone or video is available for follow-ups, repeat scripts and mild concerns."},
+{k:["bring","prepare","first visit","new patient"],a:"Please bring photo ID, your Medicare card, any concession card and a list of your current medicines."},
+{k:["where","address","location","parking"],a:"We are at 12 Example Street, Brisbane QLD (sample address). Free parking is behind the building."},
+{k:["script","prescription","repeat","refill"],a:"Repeat prescriptions need a short consult, and telehealth is fine. Send a request with the form."},
+{k:["result","pathology","blood test","scan"],a:"Your doctor discusses results with you. Please book a results review. If you feel very unwell, do not wait for a result."},
+{k:["vaccin","flu","immunis","jab"],a:"Flu and routine vaccinations are available by appointment. Ask us about the children's schedule."}];
+const EMERG=["chest pain","can't breathe","cant breathe","cannot breathe","trouble breathing","unconscious","stroke","severe bleeding","overdose","seizure","suicid","kill myself"];
+const URG=["fever","bleeding","severe","breath","infant","baby","vomit","faint","allergic","swelling","injur"];
+const ADM=["result","referral","certificate","form","letter","report","paperwork","script","prescription","repeat"];
+const $=id=>document.getElementById(id), norm=s=>s.toLowerCase().replace(/[’]/g,"'");
+function say(t,c){const d=document.createElement("div");d.className="m "+c;d.textContent=t;$("log").append(d);$("log").scrollTop=1e9}
+function isEmerg(t){return EMERG.some(e=>t.includes(e))}
+function reply(raw){const t=norm(raw);
+ if(isEmerg(t))return say("This may be an emergency. Call 000 now. If you are thinking about harming yourself, call Lifeline on 13 11 14. Do not wait for an appointment.","alert");
+ let best=null,sc=0;FAQ.forEach(f=>{const s=f.k.filter(k=>t.includes(k)).length;if(s>sc){sc=s;best=f}});
+ say(best?best.a:"I am not sure about that one. Try asking about hours, fees, telehealth or what to bring, or use the appointment form and our team will call you. I cannot give medical advice.","bot")}
+function ask(){const v=$("msg").value.trim();if(!v){$("msg").focus();return}
+ say(v,"me");$("msg").value="";reply(v)}
+function triage(raw){const t=norm(raw);
+ if(isEmerg(t))return{c:"Urgent",n:"Possible emergency. Tell the patient to call 000, then phone them straight away."};
+ if(URG.some(e=>t.includes(e)))return{c:"Urgent",n:"Offer a same-day appointment. A nurse should call within 30 minutes."};
+ if(ADM.some(e=>t.includes(e)))return{c:"Admin",n:"Send to reception. A telehealth or short consult is likely enough."};
+ return{c:"Routine",n:"Offer the next available standard appointment."}}
+let Q=[];try{Q=JSON.parse(localStorage.getItem("ca_q")||"[]")}catch(e){}
+const rank={Urgent:0,Admin:1,Routine:2};
+function render(){const b=document.querySelector("#q tbody");b.replaceChildren();
+ if(!Q.length){const r=b.insertRow(),c=r.insertCell();c.colSpan=5;c.textContent="No requests yet. Send one with the form to see it appear here.";return}
+ [...Q].sort((a,b)=>rank[a.c]-rank[b.c]).forEach(x=>{const r=b.insertRow();
+  [x.t,x.p,x.r+" ("+x.f+")"].forEach(v=>r.insertCell().textContent=v);
+  const s=document.createElement("span");s.className="tag "+x.c;s.textContent=x.c;r.insertCell().append(s);r.insertCell().textContent=x.n})}
+function save(){try{localStorage.setItem("ca_q",JSON.stringify(Q))}catch(e){}}
+$("go").onclick=()=>{const p=$("nm").value.trim(),r=$("rs").value.trim(),res=$("res");res.style.display="block";
+ if(!p||!r){res.textContent="Please enter your name and the reason for your visit.";return}
+ const x=triage(r);Q.push({t:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),p,r,f:$("pf").value,c:x.c,n:x.n});save();render();
+ res.textContent=x.c==="Urgent"?"Request received and marked urgent. If this is an emergency, call 000 now.":"Request received. Our team will contact you to confirm a time.";
+ $("nm").value="";$("rs").value=""};
+$("clr").onclick=()=>{Q=[];save();render()};
+$("send").onclick=ask;$("msg").addEventListener("keydown",e=>{if(e.key==="Enter")ask()});
+["Opening hours","Fees","Telehealth","What to bring"].forEach(c=>{const b=document.createElement("button");b.className="chip";b.textContent=c;b.onclick=()=>{say(c,"me");reply(c)};$("chips").append(b)});
+say("Hello, I am the Sunrise Family Clinic assistant. I can answer questions about hours, fees and visits. For emergencies, call 000.","bot");render();
+</script></body></html>
